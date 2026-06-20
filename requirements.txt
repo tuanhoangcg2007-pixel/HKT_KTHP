@@ -1,0 +1,7 @@
+tensorflow-cpu
+opencv-python-headless
+numpy
+qrcode
+pillow
+matplotlib
+streamlit
