@@ -1,5 +1,5 @@
-streamlit
-tensorflow-cpu
-opencv-python-headless
-numpy
-gdown
+streamlit==1.35.0
+tensorflow-cpu==2.15.0
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+gdown==5.1.0
