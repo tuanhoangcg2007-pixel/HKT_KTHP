@@ -15,10 +15,9 @@ st.write("Nhận diện món ăn & Quét QR chuyển khoản siêu tốc")
 @st.cache_resource
 def load_my_model():
     model_filename = "MOHINHHKTSIEUCAPVIPPRO.keras"
-    # ID file mô hình trên Drive của bạn
+    # ID file mô hình trên Drive
     GOOGLE_DRIVE_ID = "1r8zDDrXfsGmXQzTnAotnSH4vR62LOEt5" 
     
-    # Dùng gdown để tải xuyên qua cảnh báo bảo mật của Google Drive
     if not os.path.exists(model_filename):
         with st.spinner("📦 Đang tải bộ não CNN từ Google Drive (Vui lòng đợi 1-3 phút cho lần chạy đầu tiên)..."):
             try:
@@ -40,7 +39,6 @@ def load_my_model():
 model = load_my_model()
 
 # --- 3. DỮ LIỆU CẤU HÌNH: TÊN MÓN & GIÁ TIỀN ---
-# Cập nhật theo đúng danh sách đã train và slide báo cáo
 CLASS_NAMES = [
     'Cahukho', 'Canh chua cá', 'Canh chua không cá', 'Canh rau', 
     'Comtrang', 'Dauhusotca', 'Sườn nướng', 'Thitkhotrung', 
@@ -64,7 +62,11 @@ MENU_PRICES = {
     quick_norm('trứng chiên'): 25000
 }
 
-# Tọa độ 5 ngăn khay cơm
+# Tọa độ gốc chuẩn của khay cơm (Giả định dựa trên box lớn nhất của bạn là khoảng 1600x1000)
+# Hệ thống sẽ tự động scale ảnh đầu vào về kích thước chuẩn này trước khi cắt
+TARGET_WIDTH = 1600
+TARGET_HEIGHT = 1080
+
 BOXES = [
     {"X": 389, "Y": 182, "W": 513, "H": 419},   
     {"X": 1088, "Y": 182, "W": 398, "H": 419},  
@@ -73,7 +75,6 @@ BOXES = [
     {"X": 1159, "Y": 669, "W": 369, "H": 324}   
 ]
 
-# Tạo thư mục lưu ảnh cắt theo yêu cầu đồ án
 OUTPUT_DIR = "cropped_dishes"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -95,6 +96,9 @@ if img_file is not None:
     cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
     img_rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
     
+    # SỬA LỖI TỌA ĐỘ: Ép kích cỡ ảnh về size chuẩn cấu hình BOXES ban đầu
+    img_rgb = cv2.resize(img_rgb, (TARGET_WIDTH, TARGET_HEIGHT))
+    
     img_display = img_rgb.copy()
     total_price = 0
     results = []
@@ -102,21 +106,26 @@ if img_file is not None:
     for i, box in enumerate(BOXES):
         x, y, w, h = box["X"], box["Y"], box["W"], box["H"]
         
+        # Kiểm tra bảo vệ chống tràn boundary
+        if y + h > TARGET_HEIGHT or x + w > TARGET_WIDTH:
+            continue
+            
         # Vẽ khung xanh lá lên ảnh hiển thị
         cv2.rectangle(img_display, (x, y), (x + w, y + h), (0, 255, 0), 4)
-        cv2.putText(img_display, f"Ngan {i+1}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        cv2.putText(img_display, f"Ngan {i+1}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
         
         # Cắt ảnh ngăn đồ ăn
         cropped = img_rgb[y : y + h, x : x + w]
         if cropped.size == 0: continue
         
-        # Lưu ảnh cắt vào folder server (theo đúng yêu cầu báo cáo)
+        # Lưu ảnh cắt vào folder server
         save_path = os.path.join(OUTPUT_DIR, f"ngan_{i+1}.jpg")
         cv2.imwrite(save_path, cv2.cvtColor(cropped, cv2.COLOR_RGB2BGR))
             
-        # Tiền xử lý cho CNN
+        # Tiền xử lý cho CNN (Chuẩn hóa /255.0 nếu mô hình của bạn yêu cầu)
         resized = cv2.resize(cropped, (224, 224))
         input_tensor = tf.expand_dims(resized, axis=0)
+        input_tensor = tf.cast(input_tensor, tf.float32) # Giúp đồng bộ kiểu dữ liệu cho mô hình
         
         # Dự đoán
         preds = model.predict(input_tensor, verbose=0)
@@ -145,9 +154,12 @@ if img_file is not None:
     
     if total_price > 0:
         st.subheader("📲 Quét mã QR thanh toán:")
-        # Thay bằng file ảnh QR thật của bạn trên GitHub (qr_cua_toi.png)
-        qr_image_path = "qr_cua_toi.png"  
-        if os.path.exists(qr_image_path):
-            st.image(qr_image_path, caption="Nhập đúng số tiền khi chuyển khoản", width=300)
-        else:
-            st.warning("⚠️ Chưa tìm thấy file 'qr_cua_toi.png' để hiển thị mã QR.")
+        # Tự động sinh link VietQR động theo số tiền thay vì dùng ảnh tĩnh!
+        # Thay thế: STK của bạn, tên ngân hàng viết tắt (vcb, mbb, icb...), và tên chủ tài khoản
+        YOUR_BANK = "ICB" # Ví dụ VietinBank
+        YOUR_ACCOUNT = "10123456789"
+        YOUR_NAME = "NGUYEN VAN A"
+        
+        qr_url = f"https://img.vietqr.io/image/{YOUR_BANK}-{YOUR_ACCOUNT}-compact2.jpg?amount={total_price}&addInfo=Tien%20Com%20Canteen&accountName={YOUR_NAME.replace(' ', '%20')}"
+        
+        st.image(qr_url, caption=f"Chuyển khoản chính xác {total_price:,} VNĐ", width=300)
