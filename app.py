@@ -4,36 +4,47 @@ import numpy as np
 import tensorflow as tf
 import unicodedata
 import os
-import urllib.request
+import gdown
 
 # --- 1. CẤU HÌNH GIAO DIỆN WEB ---
 st.set_page_config(page_title="Canteen Thông Minh", page_icon="🍽️", layout="centered")
 st.title("🍽️ HỆ THỐNG TÍNH TIỀN KHAY CƠM TỰ ĐỘNG")
 st.write("Nhận diện món ăn bằng CNN & Quét QR chuyển khoản siêu tốc")
 
-# --- 2. KHỞI TẠO BỘ NÃO CNN (Tải từ Google Drive) ---
+# --- 2. KHỞI TẠO BỘ NÃO CNN (Sử dụng gdown chuyên trị file lớn) ---
 @st.cache_resource
 def load_my_model():
     model_filename = "MOHINHHKTSIEUCAPVIPPRO.keras"
     GOOGLE_DRIVE_ID = "1r8zDDrXfsGmXQzTnAotnSH4vR62LOEt5" 
-    direct_download_url = f"https://docs.google.com/uc?export=download&id={GOOGLE_DRIVE_ID}"
     
+    # Nếu chưa có file, dùng gdown để tải
     if not os.path.exists(model_filename):
-        with st.spinner("📦 Đang tải bộ não CNN từ Google Drive về máy chủ Streamlit (Vui lòng đợi từ 1-2 phút)..."):
+        with st.spinner("📦 Đang tải bộ não CNN từ Google Drive về máy chủ (File nặng, vui lòng đợi từ 1-3 phút)..."):
             try:
-                urllib.request.urlretrieve(direct_download_url, model_filename)
-                st.success("📥 Đã tải xong bộ não!")
+                url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_ID}"
+                # Dùng gdown bỏ qua cảnh báo virus của Google Drive
+                gdown.download(url, model_filename, quiet=False)
+                st.success("📥 Đã tải xong file bộ não!")
             except Exception as e:
                 st.error(f"❌ Lỗi khi tải mô hình từ Drive: {e}")
                 st.stop()
-            
-    return tf.keras.models.load_model(model_filename)
+                
+    # Đọc mô hình
+    try:
+        model = tf.keras.models.load_model(model_filename)
+        return model
+    except Exception as e:
+        # Xóa file lỗi để lần sau tải lại
+        if os.path.exists(model_filename):
+            os.remove(model_filename)
+        st.error(f"❌ Lỗi khi đọc file mô hình. Có thể file tải về bị hỏng. Hãy tải lại trang: {e}")
+        st.stop()
 
 try:
     model = load_my_model()
     st.success("🧠 Bộ não CNN đã nạp thành công! Sẵn sàng nhận diện.")
 except Exception as e:
-    st.error(f"❌ Lỗi nạp mô hình: {e}")
+    st.error("❌ Không thể khởi tạo AI.")
     st.stop()
 
 # --- 3. DATA CẤU HÌNH (DANH SÁCH MÓN, GIÁ, TỌA ĐỘ) ---
@@ -63,7 +74,7 @@ BOXES = [
 
 # --- 4. PHẦN CHỌN PHƯƠNG THỨC ĐƯA ẢNH VÀO ---
 st.subheader("📸 Đưa dữ liệu khay cơm vào hệ thống")
-tab1, tab2 = st.tabs(["📁 Tải ảnh từ máy tính (Chèn file)", "📷 Chụp trực tiếp bằng Camera"])
+tab1, tab2 = st.tabs(["📁 Tải ảnh từ máy tính", "📷 Chụp trực tiếp bằng Camera"])
 
 img_file = None
 
@@ -79,26 +90,25 @@ with tab2:
 
 # --- 5. 🧠 XỬ LÝ NHẬN DIỆN VÀ VẼ VÙNG CẮT ---
 if img_file is not None:
+    # Decode ảnh
     bytes_data = img_file.getvalue()
     cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
     img_rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
     
-    # Tạo một bản sao của ảnh gốc để vẽ khung ô vuông định vị lên
+    # Copy ảnh để vẽ khung tọa độ
     img_display = img_rgb.copy()
     
     total_price = 0
     results = []
     
-    # Tiến hành vòng lặp xử lý nhận diện đồng thời vẽ khung định vị
+    # Cắt, vẽ và nhận diện
     for i, box in enumerate(BOXES):
         x, y, w, h = box["X"], box["Y"], box["W"], box["H"]
         
-        # 🟢 VẼ KHUNG: Vẽ đè ô vuông màu xanh lá cây lên ảnh hiển thị (Độ dày nét vẽ = 4 pixel)
+        # Vẽ ô vuông định vị (Màu xanh lá)
         cv2.rectangle(img_display, (x, y), (x + w, y + h), (0, 255, 0), 4)
-        # Ghi thêm chữ "Ngăn X" ngay phía trên góc vuông để dễ nhìn
         cv2.putText(img_display, f"Ngan {i+1}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
         
-        # Trích xuất vùng ảnh cắt để đưa vào CNN dự đoán
         cropped = img_rgb[y : y + h, x : x + w]
         if cropped.size == 0:
             continue
@@ -111,6 +121,7 @@ if img_file is not None:
         confidence = np.max(preds[0])
         predicted_food = CLASS_NAMES[class_idx]
         
+        # Ngưỡng > 65%
         if confidence > 0.65:
             norm_name = quick_norm(predicted_food)
             price = MENU_PRICES.get(norm_name, 0)
@@ -121,7 +132,7 @@ if img_file is not None:
             
     # --- 6. HIỂN THỊ ẢNH ĐÃ VẼ KHUNG LÊN TRƯỚC ---
     st.subheader("🔍 Khung định vị cắt ảnh thực tế:")
-    st.image(img_display, caption="Ảnh khay cơm mặc định phân tách theo 5 tọa độ của bạn", use_container_width=True)
+    st.image(img_display, caption="Ảnh khay cơm đã được phân tách theo 5 ngăn", use_container_width=True)
     
     # --- 7. HIỂN THỊ HÓA ĐƠN & QR THANH TOÁN ---
     st.subheader("📋 Chi tiết hóa đơn:")
@@ -133,9 +144,9 @@ if img_file is not None:
     
     if total_price > 0:
         st.subheader("📲 Quét mã QR bên dưới để thanh toán chuyển khoản:")
-        qr_image_path = "qr_cua_toi.png"  
+        qr_image_path = "qr_cua_toi.jpg"  
         
         if os.path.exists(qr_image_path):
             st.image(qr_image_path, caption="Vui lòng nhập đúng số tiền khi chuyển khoản", width=300)
         else:
-            st.error(f"⚠️ Không tìm thấy file ảnh '{qr_image_path}' trên thư mục GitHub. Hãy bổ sung file ảnh QR ngân hàng của bạn nhé!")
+            st.error(f"⚠️ Không tìm thấy file ảnh '{qr_image_path}'. Hãy bổ sung file ảnh QR ngân hàng của bạn lên GitHub nhé!")
