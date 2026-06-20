@@ -154,11 +154,9 @@ if img_file is not None:
     
     if total_price > 0:
         st.subheader("📲 Quét mã QR thanh toán:")
-        # Tự động sinh link VietQR động theo số tiền thay vì dùng ảnh tĩnh!
-        # Thay thế: STK của bạn, tên ngân hàng viết tắt (vcb, mbb, icb...), và tên chủ tài khoản
-        YOUR_BANK = "ICB" # Ví dụ VietinBank
-        YOUR_ACCOUNT = "10123456789"
-        YOUR_NAME = "NGUYEN VAN A"
+        YOUR_BANK = "mbb" 
+        YOUR_ACCOUNT = "0838088267"
+        YOUR_NAME = "TRINH HOANG TUAN"
         
         qr_url = f"https://img.vietqr.io/image/{YOUR_BANK}-{YOUR_ACCOUNT}-compact2.jpg?amount={total_price}&addInfo=Tien%20Com%20Canteen&accountName={YOUR_NAME.replace(' ', '%20')}"
         
